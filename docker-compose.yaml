@@ -1,0 +1,66 @@
+version: "2"
+
+services:
+  indexer:
+    image: postgres
+    volumes:
+      - indexer-volume:/var/lib/postgresql/data
+    restart: on-failure
+
+
+  storage:
+    image: redis
+    volumes:
+      - storage-volume:/data
+    restart: on-failure
+
+
+  gnocchi-metricd:
+    image: gnocchi
+    build:
+      context: gnocchi
+    environment:
+      POSTGRESQL_USER: postgres
+    depends_on:
+      - indexer
+      - storage
+    volumes:
+      - metrics-volume:/var/lib/gnocchi
+    command: runuser -u gnocchi gnocchi-metricd
+    restart: on-failure
+
+
+  gnocchi-api:
+    image: gnocchi
+    build:
+      context: gnocchi
+    environment:
+      POSTGRESQL_USER: postgres
+    ports:
+      - "127.0.0.1:8041:8041"
+    depends_on:
+      - indexer
+      - storage
+      - gnocchi-metricd
+    volumes:
+      - metrics-volume:/var/lib/gnocchi
+      - ./gnocchi-wsgi.conf:/etc/httpd/conf.d/gnocchi.conf
+    command: httpd -DFOREGROUND
+    restart: on-failure
+
+
+  collectd:
+    image: collectd
+    build:
+      context: collectd
+    command: collectd -f
+    volumes:
+      - ./collectd.conf:/etc/collectd.conf
+      - ./collectd-gnocchi.conf:/etc/collectd.d/collectd-gnocchi.conf
+      - ./wait-for-gnocchi.sh:/wait-for-gnocchi.sh
+    entrypoint: sh /wait-for-gnocchi.sh
+
+volumes:
+  metrics-volume:
+  storage-volume:
+  indexer-volume:
